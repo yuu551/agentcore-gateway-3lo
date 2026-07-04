@@ -1,0 +1,10 @@
+node_modules
+dist
+.amplify
+amplify_outputs.json
+amplifyconfiguration.json
+.env*
+*.local
+*.log
+.DS_Store
+__pycache__/
