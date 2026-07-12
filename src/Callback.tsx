@@ -9,7 +9,9 @@ type Status = 'working' | 'done' | 'error';
 
 export default function Callback() {
   const [status, setStatus] = useState<Status>('working');
-  const [message, setMessage] = useState('GitHub連携を完了しています…');
+  // コールバックURLにはsession_idしか含まれず対象サービスを特定できないため、
+  // 文言はプロバイダー非依存にする
+  const [message, setMessage] = useState('アカウント連携を完了しています…');
   // Session Bindingはワンタイム処理のため、StrictModeの二重実行を防ぐ
   const started = useRef(false);
 
@@ -48,7 +50,7 @@ export default function Callback() {
       setMessage(
         res.ok
           ? 'このタブを閉じて元の画面にお戻りください。エージェントが自動で処理を再開します。'
-          : 'GitHub連携に失敗しました。もう一度お試しください。'
+          : 'アカウント連携に失敗しました。もう一度お試しください。'
       );
     })();
   }, []);
@@ -61,10 +63,10 @@ export default function Callback() {
         </div>
         <h2>
           {status === 'done'
-            ? 'GitHub連携が完了しました'
+            ? 'アカウント連携が完了しました'
             : status === 'error'
               ? '連携に失敗しました'
-              : 'GitHub連携を処理中'}
+              : 'アカウント連携を処理中'}
         </h2>
         <p>{message}</p>
       </div>

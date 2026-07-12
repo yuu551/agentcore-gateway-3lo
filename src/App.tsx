@@ -18,7 +18,15 @@ const REGION = AGENT_ARN.split(':')[3] || 'us-east-1';
 const SUGGESTIONS = [
   '私のリポジトリを教えて',
   'アサインされているIssueは？',
+  'Slackで自分のメッセージを検索して',
 ];
+
+// 認可URLのドメインからサービス名を判定する（表示用）
+const providerFromUrl = (url: string) => {
+  if (url.includes('slack.com')) return 'Slack';
+  if (url.includes('github.com')) return 'GitHub';
+  return '外部サービス';
+};
 
 interface Message {
   id: string;
@@ -117,7 +125,7 @@ function App({ signOut }: WithAuthenticatorProps) {
                 id: crypto.randomUUID(),
                 role: 'assistant',
                 content:
-                  'GitHubへのアクセス許可が必要です。' +
+                  `${providerFromUrl(event.auth_url)}へのアクセス許可が必要です。` +
                   'リンクから認可を完了すると処理を続行します。',
                 authUrl: event.auth_url,
               },
@@ -142,7 +150,7 @@ function App({ signOut }: WithAuthenticatorProps) {
   return (
     <div className="chat-shell">
       <header className="chat-header">
-        <span className="brand">GitHub Agent</span>
+        <span className="brand">3LO Agent</span>
         <span className="brand-chip">AgentCore 3LO</span>
         <span className="status">
           <span className={`status-dot${AGENT_ARN ? '' : ' off'}`} />
@@ -161,7 +169,7 @@ function App({ signOut }: WithAuthenticatorProps) {
         {messages.length === 0 && AGENT_ARN && (
           <div className="empty">
             <h2>何をお手伝いしましょう？</h2>
-            <p>あなたのGitHubアカウントの情報を調べます</p>
+            <p>あなたのGitHubアカウントとSlackワークスペースの情報を調べます</p>
             <div className="suggestions">
               {SUGGESTIONS.map((s) => (
                 <button
@@ -202,15 +210,18 @@ function App({ signOut }: WithAuthenticatorProps) {
             </div>
             {m.authUrl && (
               <div className="auth-card">
-                <p>認可はGitHubの画面で行われ、完了後に自動で処理を再開します</p>
+                <p>
+                  認可は{providerFromUrl(m.authUrl)}
+                  の画面で行われ、完了後に自動で処理を再開します
+                </p>
                 <a
                   className="auth-btn"
                   href={m.authUrl}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  <GitHubMark />
-                  GitHubで認可する
+                  {providerFromUrl(m.authUrl) === 'GitHub' && <GitHubMark />}
+                  {providerFromUrl(m.authUrl)}で認可する
                 </a>
               </div>
             )}

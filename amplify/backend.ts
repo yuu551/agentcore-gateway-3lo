@@ -15,6 +15,10 @@ import { sessionBinding } from './functions/session-binding/resource';
 
 const GITHUB_CLIENT_ID = 'Ov23liDvunrMrRslwdjl'; // GitHub OAuth AppのClient ID（公開時はプレースホルダーに戻す）
 const SECRET_NAME = 'github-agent/oauth-client-secret';
+// Slack AppのClient ID。実値はコミットせず環境変数で渡す
+// （例: SLACK_CLIENT_ID=xxxx.yyyy npx ampx sandbox --once）
+const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID ?? '<SLACK_CLIENT_ID>';
+const SLACK_SECRET_NAME = 'slack-agent/oauth-client-secret';
 
 const backend = defineBackend({ auth, sessionBinding });
 
@@ -63,6 +67,7 @@ fn.addToRolePolicy(
     actions: ['secretsmanager:GetSecretValue'],
     resources: [
       `arn:aws:secretsmanager:${stack.region}:${stack.account}:secret:${SECRET_NAME}-*`,
+      `arn:aws:secretsmanager:${stack.region}:${stack.account}:secret:${SLACK_SECRET_NAME}-*`,
     ],
   })
 );
@@ -128,6 +133,7 @@ gatewayRole.addToPolicy(
     actions: ['secretsmanager:GetSecretValue'],
     resources: [
       `arn:aws:secretsmanager:${stack.region}:${stack.account}:secret:${SECRET_NAME}-*`,
+      `arn:aws:secretsmanager:${stack.region}:${stack.account}:secret:${SLACK_SECRET_NAME}-*`,
     ],
   })
 );
@@ -155,6 +161,39 @@ const credentialProvider = new CfnResource(stack, 'GitHubCredentialProvider', {
     },
   },
 });
+
+// Slack用。ビルトインのSlackOauth2ベンダーは標準のoauth.v2.accessを使うため
+// ボットトークンが保存され、ユーザートークン必須のSlack MCPサーバーに拒否される
+// （sandboxで実測済み）。CustomOauth2でユーザーフロー専用エンドポイントを明示する
+const slackCredentialProvider = new CfnResource(
+  stack,
+  'SlackCredentialProvider',
+  {
+    type: 'AWS::BedrockAgentCore::OAuth2CredentialProvider',
+    properties: {
+      Name: `slack-user-provider-${suffix}`,
+      CredentialProviderVendor: 'CustomOauth2',
+      Oauth2ProviderConfigInput: {
+        CustomOauth2ProviderConfig: {
+          ClientId: SLACK_CLIENT_ID,
+          ClientSecretSource: 'EXTERNAL',
+          ClientSecretConfig: {
+            SecretId: SLACK_SECRET_NAME,
+            JsonKey: 'client_secret',
+          },
+          OauthDiscovery: {
+            AuthorizationServerMetadata: {
+              Issuer: 'https://slack.com',
+              AuthorizationEndpoint: 'https://slack.com/oauth/v2_user/authorize',
+              TokenEndpoint: 'https://slack.com/api/oauth.v2.user.access',
+              ResponseTypes: ['code'],
+            },
+          },
+        },
+      },
+    },
+  }
+);
 
 // ─── Gateway ─────────────────────────────────────────
 const gateway = new CfnResource(stack, 'GitHubGateway', {
@@ -221,6 +260,55 @@ new CfnResource(stack, 'GitHubMcpTarget', {
               .getAtt('CredentialProviderArn')
               .toString(),
             Scopes: ['repo', 'read:user'],
+            GrantType: 'AUTHORIZATION_CODE',
+            DefaultReturnUrl: callbackUrl,
+          },
+        },
+      },
+    ],
+  },
+});
+
+// ─── Gateway Target: Slack公式リモートMCPサーバー ─────
+// GitHubターゲットと同じくツール定義を静的に渡す（同期なし・Lambdaプロキシ不要）。
+// Slack MCPサーバーはユーザートークン必須。Slack App側でMCPサーバーアクセスの
+// 有効化（App Assistant設定）を済ませておくこと
+const slackToolsSchema = readFileSync(
+  path.join(dirname, 'slack-mcp-tools.json'),
+  'utf-8'
+);
+
+new CfnResource(stack, 'SlackMcpTarget', {
+  type: 'AWS::BedrockAgentCore::GatewayTarget',
+  properties: {
+    Name: 'slackmcp',
+    GatewayIdentifier: gateway.ref,
+    TargetConfiguration: {
+      Mcp: {
+        McpServer: {
+          Endpoint: 'https://mcp.slack.com/mcp',
+          McpToolSchema: {
+            InlinePayload: slackToolsSchema,
+          },
+        },
+      },
+    },
+    CredentialProviderConfigurations: [
+      {
+        CredentialProviderType: 'OAUTH',
+        CredentialProvider: {
+          OauthCredentialProvider: {
+            ProviderArn: slackCredentialProvider
+              .getAtt('CredentialProviderArn')
+              .toString(),
+            // Slack AppのUser Token Scopesと一致させる
+            Scopes: [
+              'channels:history',
+              'channels:read',
+              'chat:write',
+              'search:read.public',
+              'users:read',
+            ],
             GrantType: 'AUTHORIZATION_CODE',
             DefaultReturnUrl: callbackUrl,
           },
