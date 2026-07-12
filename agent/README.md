@@ -1,6 +1,6 @@
 # agent — Strands エージェント
 
-AgentCore Runtime 上で動く Strands エージェントです。Gateway に MCP で接続してツールを取得し、GitHub アカウントに関する質問に回答します。
+AgentCore Runtime 上で動く Strands エージェントです。Gateway に MCP で接続してツールを取得し、GitHub アカウントや Slack ワークスペースに関する質問に回答します。
 
 ## ファイル構成
 
@@ -18,7 +18,7 @@ AgentCore Runtime 上で動く Strands エージェントです。Gateway に MC
 2. 同じ JWT を付けて Gateway に MCPClient で接続し、`list_tools_sync()` でツールを取得して Agent を組み立てる（JWT パススルー）
 3. `stream_async` のイベントを SSE としてフロントエンドへ流す
 
-エージェントが Gateway について知っているのは接続先 URL（環境変数 GATEWAY_URL）と認証ヘッダーだけで、GitHub 用のツール実装はありません。ターゲットにツールが増えてもコード変更は不要です。
+エージェントが Gateway について知っているのは接続先 URL（環境変数 GATEWAY_URL）と認証ヘッダーだけで、GitHub / Slack 用のツール実装はありません。ターゲットにツールが増えてもコード変更は不要です。
 
 未認可時の扱いは gateway_auth.py の GatewayAuthHook に分離しています。Gateway が返す認可要求エラー（URL elicitation、strands の MCPClient が組み込みで解釈）を AfterToolCallEvent で検出し、認可 URL を一度だけフロントエンドへ通知したうえで、5 秒間隔で `event.retry = True` を立てて同じツール呼び出しをリトライさせます（タイムアウト 5 分）。リトライの実行自体は strands のフック機構に任せています。
 
@@ -36,7 +36,7 @@ AgentCore Runtime 上で動く Strands エージェントです。Gateway に MC
 |------|-----------|------|
 | text | data: 文字列 | 回答テキストの断片 |
 | tool_use | tool_name: 文字列 | ツール呼び出しの開始（toolUseId 単位で重複排除済み） |
-| auth_required | auth_url: 文字列 | GitHub の認可が必要。フロントは /auth/pending を記録して認可リンクを表示する |
+| auth_required | auth_url: 文字列 | 外部サービス（GitHub / Slack）の認可が必要。フロントは /auth/pending を記録して認可リンクを表示する |
 | error | data: 文字列 | エージェント内のエラー |
 
 ## 開発メモ
