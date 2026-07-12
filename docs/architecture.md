@@ -15,12 +15,12 @@ sequenceDiagram
     participant GW as Gateway
     participant ID as Identity<br/>Token Vault
     participant SB as Session Binding API
-    participant GH as GitHub<br/>（認可画面 / MCPサーバー）
+    participant GH as 外部サービス<br/>GitHub / Slack<br/>（認可画面 / MCPサーバー）
 
     U->>SPA: ログイン（Cognito）してチャット送信
     SPA->>RT: プロンプト（JWT付き）
     RT->>GW: tools/call（同じJWTで接続）
-    GW->>ID: ユーザーのGitHubトークンを照会
+    GW->>ID: ユーザーのトークンを照会
     ID-->>GW: 未保管
     GW-->>RT: エラー -32042（認可URL付き）
     RT-->>SPA: auth_required（SSE）
@@ -33,7 +33,7 @@ sequenceDiagram
     U->>SPA: /callback
     SPA->>SB: POST /auth/complete（session_id + JWT）
     SB->>ID: CompleteResourceTokenAuth
-    Note over ID: GitHubトークンを<br/>ユーザーに紐付けて保管
+    Note over ID: 取得したトークンを<br/>ユーザーに紐付けて保管
     RT->>GW: リトライのtools/call
     GW->>ID: トークン照会
     ID-->>GW: トークン取得
@@ -53,9 +53,9 @@ sequenceDiagram
 - Runtime は `RequestHeaderConfiguration.RequestHeaderAllowlist: ['Authorization']` により Authorization ヘッダーをエージェントへ転送する（エージェントは `context.request_headers` から取得）
 - エージェントは同じ JWT を付けて Gateway に MCP で接続する。Gateway 側は CUSTOM_JWT オーソライザー（Cognito の Discovery URL + クライアント ID）で検証する
 
-Token Vault のユーザー識別は Gateway のインバウンド JWT をもとに行われます。ここでエージェント自身の M2M トークンを使ってしまうと、全ユーザーの GitHub トークンが 1 つの ID に紐付き、ユーザー委任の意味がなくなります。ユーザーの JWT をそのまま渡すことが必須です。
+Token Vault のユーザー識別は Gateway のインバウンド JWT をもとに行われます。ここでエージェント自身の M2M トークンを使ってしまうと、全ユーザーのトークンが 1 つの ID に紐付き、ユーザー委任の意味がなくなります。ユーザーの JWT をそのまま渡すことが必須です。
 
-この結果、GitHub トークンの取得・保管・付与はすべて Gateway と Token Vault の間で完結し、エージェントのコードにも Runtime のコンテナにもフロントエンドにもトークンが現れません。
+この結果、各サービスのトークンの取得・保管・付与はすべて Gateway と Token Vault の間で完結し、エージェントのコードにも Runtime のコンテナにもフロントエンドにもトークンが現れません。
 
 ### URL elicitation（未認可時のエラー形式）
 
@@ -84,7 +84,7 @@ Token Vault に該当ユーザーのトークンが無い場合、Gateway は to
 
 ### エージェント設計: 標準の MCP 接続 + 認可フック
 
-エージェント（[agent/](../agent/)）は Strands の標準的な MCP 統合そのままです。Gateway について知っているのは接続先 URL と認証ヘッダーだけで、GitHub 用のツール実装はありません。
+エージェント（[agent/](../agent/)）は Strands の標準的な MCP 統合そのままです。Gateway について知っているのは接続先 URL と認証ヘッダーだけで、GitHub / Slack 用のツール実装はありません。
 
 ```python
 gateway = MCPClient(lambda: streamablehttp_client(
@@ -103,20 +103,32 @@ with gateway:
 1. MCPClient は -32042 の elicitation エラーを組み込みで解釈し、`MCP Elicitation required: ... with data [...]` 形式のテキストを持つエラー結果に変換する。自前で McpError を捕まえる必要がない
 2. AfterToolCallEvent フックには書き込み可能な retry フラグがあり、「結果を破棄して同じツールを再実行」を公式にサポートしている。ツール実行フックは非同期コールバックに対応しているため、`asyncio.sleep` でポーリング間隔を空けてもイベントループを塞がない
 
-フックがやることは 3 つだけです: ツール結果が認可要求エラーか判定 → 認可 URL を一度だけフロントエンドへ通知 → 5 秒待って `event.retry = True`（5 分でタイムアウトし、エラー結果をモデルへ返す）。ターゲットやツールが増えてもフックは 1 つのままです。
+フックがやることは 3 つだけです: ツール結果が認可要求エラーか判定 → 認可 URL を一度だけフロントエンドへ通知 → 5 秒待って `event.retry = True`（5 分でタイムアウトし、エラー結果をモデルへ返す）。フックはプロバイダー非依存なので、ターゲットやツールが増えてもフックは 1 つのままです（Slack ターゲット追加時も変更不要でした）。
 
 ### 静的ツールスキーマ（mcpToolSchema）
 
-Gateway のターゲットは GitHub 公式リモート MCP サーバー（`https://api.githubcopilot.com/mcp/`）です。ここに 1 つ考慮点があります。3LO の MCP サーバーターゲットは、Gateway が作成時にツール一覧を同期しに行く際、管理者の対話的な認可が必要になります（ターゲットが CREATE_PENDING_AUTH 状態で止まる）。これでは IaC のワンショットデプロイが崩れます。
+Gateway のターゲットは GitHub 公式リモート MCP サーバー（`https://api.githubcopilot.com/mcp/`）と Slack 公式リモート MCP サーバー（`https://mcp.slack.com/mcp`）の 2 つです。ここに 1 つ考慮点があります。3LO の MCP サーバーターゲットは、Gateway が作成時にツール一覧を同期しに行く際、管理者の対話的な認可が必要になります（ターゲットが CREATE_PENDING_AUTH 状態で止まる）。これでは IaC のワンショットデプロイが崩れます。
 
 そこで mcpToolSchema でツール定義を静的に渡す方式（認可コードグラント専用の仕組み）を使っています。
 
 - GitHub MCP サーバーは 44 ツールを公開しているが、読み取り系の 6 つ（get_me / search_repositories / list_commits / list_pull_requests / search_code / search_issues）に厳選している（`amplify/github-mcp-tools.json`）
+- Slack MCP サーバーは 7 ツールのうち 5 つ（slack_search_channels / slack_search_public / slack_read_channel / slack_read_thread / slack_send_message）を採用している（`amplify/slack-mcp-tools.json`）
 - InlinePayload に渡す JSON は配列ではなく `{"tools": [...]}` 形式のオブジェクト（配列直渡しは Invalid MCP ToolSchema でデプロイ失敗）
 - inputSchema に使えるキーは type / properties / required / items / description のみ。実サーバーのレスポンスに含まれる enum や default 等は取り除く必要がある
-- 副次的なメリットとして、公開するツールを明示的に管理下に置ける。Gateway による同期自体を行わないため、MCP サーバー側の同期系メソッドの実装状況にも影響されない
+- 副次的なメリットとして、公開するツールを明示的に管理下に置ける。Gateway による同期自体を行わないため、MCP サーバー側の同期系メソッドの実装状況にも影響されない（Slack MCP サーバーは `resources/list` / `resources/templates/list` を実装しておらず同期ベースのターゲットでは READY にならないが、静的スキーマならこの問題自体が発生しない）
 
 ツール定義の再生成には取得スクリプト（[scripts/fetch_mcp_tools.py](../scripts/fetch_mcp_tools.py)）が使えます。
+
+### Slack ターゲットの認可設計（CustomOauth2）
+
+Slack MCP サーバーは**ユーザートークン（`xoxp-`）必須**です。ここに落とし穴があります。AgentCore Identity のビルトイン `SlackOauth2` ベンダーは標準の認可エンドポイント + `oauth.v2.access` を使いますが、このトークンレスポンスはトップレベルにボットトークンを返す形式（ユーザートークンは `authed_user` 内）のため、Token Vault にはボットトークンが保存されます。認可フローは正常に完了するのに、ツール呼び出しだけが Slack 側の Authorization error で拒否されるという分かりにくい失敗になります（実測で確認）。
+
+そこで `CustomOauth2` ベンダーで、Slack が MCP 向けに用意しているユーザーフロー専用エンドポイントを明示しています。
+
+- AuthorizationEndpoint: `https://slack.com/oauth/v2_user/authorize`
+- TokenEndpoint: `https://slack.com/api/oauth.v2.user.access`（標準 OAuth 形式でユーザートークンを返す）
+
+Slack App 側にも 3 つの前提設定が必要です（詳細は README のセットアップ手順を参照）: User Token Scopes の設定、MCP サーバーアクセスの有効化、ボットユーザーの作成（無いと認可画面でエラー）。PKCE は有効化しません（コンフィデンシャルクライアントのため不要、かつ不可逆操作）。
 
 ### Session Binding（Lambda + DynamoDB 方式)
 
@@ -151,4 +163,4 @@ CloudFormation の AWS::BedrockAgentCore:: 系リソースタイプと aws-cdk-l
 - 現在のコールバック画面はアクセスすると自動で Binding を完了させる実装です。外部から不正な session_id を含むコールバック URL を踏まされるケースを考えると、完了前に確認ボタン（「この連携を承認しますか？」）を挟むとより安全です。本番運用ではこのひと手間の追加を推奨します
 - Session Binding API の CORS は動作確認用に `*` を許可しています。本番では Amplify のドメインに絞ってください
 - IAM ポリシーの Resource も一部 `*` です。本番では workload-identity / token-vault の ARN に絞ってください
-- GitHub OAuth App のトークンはデフォルトで無期限です。一度 Token Vault に入ったトークンは長期間有効なままなので、不要になったら削除してください
+- GitHub OAuth App のトークンはデフォルトで無期限です。一度 Token Vault に入ったトークンは長期間有効なままなので、不要になったら削除してください（Slack のユーザートークンも同様）
