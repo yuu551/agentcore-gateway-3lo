@@ -1,0 +1,235 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Google Calendar API (curated)",
+    "description": "Google Calendar APIの読み取り系エンドポイント。Gatewayのツールとして公開する3操作のみを定義した厳選版。",
+    "version": "v3"
+  },
+  "servers": [
+    {
+      "url": "https://www.googleapis.com/calendar/v3"
+    }
+  ],
+  "security": [
+    {
+      "googleOAuth": ["https://www.googleapis.com/auth/calendar.readonly"]
+    }
+  ],
+  "paths": {
+    "/users/me/calendarList": {
+      "get": {
+        "operationId": "listCalendars",
+        "description": "ユーザーのカレンダー一覧を取得する。カレンダーID・名前・タイムゾーンが返る。予定を調べる対象のカレンダーIDが不明な場合に最初に呼ぶ。主カレンダーのIDは 'primary' で参照できる。",
+        "parameters": [
+          {
+            "name": "maxResults",
+            "in": "query",
+            "description": "返すカレンダー数の上限（デフォルト100）",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "カレンダー一覧",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string" },
+                          "summary": { "type": "string" },
+                          "timeZone": { "type": "string" },
+                          "primary": { "type": "boolean" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/calendars/{calendarId}/events": {
+      "get": {
+        "operationId": "listEvents",
+        "description": "指定カレンダーの予定一覧を取得する。timeMin/timeMaxで期間を絞る（RFC3339形式、例: 2026-07-12T00:00:00+09:00）。ユーザー自身の予定は calendarId='primary' を使う。singleEvents=true と orderBy='startTime' の組み合わせで繰り返し予定を展開して開始時刻順に返す。",
+        "parameters": [
+          {
+            "name": "calendarId",
+            "in": "path",
+            "required": true,
+            "description": "カレンダーID。ユーザーの主カレンダーは 'primary'",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "timeMin",
+            "in": "query",
+            "description": "この時刻以降に終了する予定を返す（RFC3339形式）",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "timeMax",
+            "in": "query",
+            "description": "この時刻より前に開始する予定を返す（RFC3339形式）",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "予定のタイトル・説明・参加者などに対するフリーテキスト検索",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "singleEvents",
+            "in": "query",
+            "description": "trueで繰り返し予定を個々の実体に展開する（orderBy=startTimeに必須）",
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "orderBy",
+            "in": "query",
+            "description": "並び順。'startTime'（singleEvents=true時のみ）または 'updated'",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "maxResults",
+            "in": "query",
+            "description": "返す予定数の上限（デフォルト250）",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "予定一覧",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "summary": { "type": "string" },
+                    "timeZone": { "type": "string" },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string" },
+                          "summary": { "type": "string" },
+                          "location": { "type": "string" },
+                          "start": {
+                            "type": "object",
+                            "properties": {
+                              "dateTime": { "type": "string" },
+                              "date": { "type": "string" }
+                            }
+                          },
+                          "end": {
+                            "type": "object",
+                            "properties": {
+                              "dateTime": { "type": "string" },
+                              "date": { "type": "string" }
+                            }
+                          },
+                          "status": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/calendars/{calendarId}/events/{eventId}": {
+      "get": {
+        "operationId": "getEvent",
+        "description": "予定1件の詳細を取得する。説明文・参加者・会議URLなど、listEventsに含まれない詳細情報が必要な場合に使う。",
+        "parameters": [
+          {
+            "name": "calendarId",
+            "in": "path",
+            "required": true,
+            "description": "カレンダーID。ユーザーの主カレンダーは 'primary'",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "eventId",
+            "in": "path",
+            "required": true,
+            "description": "listEventsで取得した予定のID",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "予定の詳細",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "summary": { "type": "string" },
+                    "description": { "type": "string" },
+                    "location": { "type": "string" },
+                    "hangoutLink": { "type": "string" },
+                    "start": {
+                      "type": "object",
+                      "properties": {
+                        "dateTime": { "type": "string" },
+                        "date": { "type": "string" }
+                      }
+                    },
+                    "end": {
+                      "type": "object",
+                      "properties": {
+                        "dateTime": { "type": "string" },
+                        "date": { "type": "string" }
+                      }
+                    },
+                    "attendees": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "email": { "type": "string" },
+                          "displayName": { "type": "string" },
+                          "responseStatus": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "googleOAuth": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+            "tokenUrl": "https://oauth2.googleapis.com/token",
+            "scopes": {
+              "https://www.googleapis.com/auth/calendar.readonly": "カレンダーの読み取り"
+            }
+          }
+        }
+      }
+    }
+  }
+}

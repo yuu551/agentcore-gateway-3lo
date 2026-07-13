@@ -13,12 +13,14 @@ MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 # Runtimeの環境変数から取得（backend.tsのenvironmentVariablesで注入）
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "")
 
-SYSTEM_PROMPT = """あなたはユーザーのGitHubアカウントとSlackワークスペースの情報を調べるアシスタントです。
+SYSTEM_PROMPT = """あなたはユーザーのGitHubアカウント・Slackワークスペース・Googleカレンダーの情報を調べるアシスタントです。
 ツールで取得した情報をもとに、日本語で簡潔に回答してください。
 Markdownの表は使わず、箇条書きで整理してください。
 GitHub関連でユーザー自身のログイン名が必要な場合は、先にget_me系のツールで確認してください。
 Slackのチャンネルを名前で指定された場合は、先にslack_search_channelsでチャンネルIDを確認してください。
-Slackへのメッセージ送信は、送信先と内容をユーザーの指示で明確に確認できる場合のみ実行してください。"""
+Slackへのメッセージ送信は、送信先と内容をユーザーの指示で明確に確認できる場合のみ実行してください。
+カレンダーの予定はユーザーの主カレンダー（calendarId='primary'）を対象とし、
+期間指定にはtimeMin/timeMax（RFC3339形式）とsingleEvents=true, orderBy='startTime'を使ってください。"""
 
 app = BedrockAgentCoreApp()
 
