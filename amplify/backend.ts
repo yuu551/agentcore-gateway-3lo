@@ -20,6 +20,9 @@ const SECRET_NAME = 'github-agent/oauth-client-secret';
 // （例: SLACK_CLIENT_ID=xxxx.yyyy npx ampx sandbox --once）
 const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID ?? '<SLACK_CLIENT_ID>';
 const SLACK_SECRET_NAME = 'slack-agent/oauth-client-secret';
+// Google OAuthクライアントのClient ID。実値はコミットせず環境変数で渡す
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? '<GOOGLE_CLIENT_ID>';
+const GOOGLE_SECRET_NAME = 'google-agent/oauth-client-secret';
 
 const backend = defineBackend({ auth, sessionBinding });
 
@@ -69,6 +72,7 @@ fn.addToRolePolicy(
     resources: [
       `arn:aws:secretsmanager:${stack.region}:${stack.account}:secret:${SECRET_NAME}-*`,
       `arn:aws:secretsmanager:${stack.region}:${stack.account}:secret:${SLACK_SECRET_NAME}-*`,
+      `arn:aws:secretsmanager:${stack.region}:${stack.account}:secret:${GOOGLE_SECRET_NAME}-*`,
     ],
   })
 );
@@ -135,6 +139,7 @@ gatewayRole.addToPolicy(
     resources: [
       `arn:aws:secretsmanager:${stack.region}:${stack.account}:secret:${SECRET_NAME}-*`,
       `arn:aws:secretsmanager:${stack.region}:${stack.account}:secret:${SLACK_SECRET_NAME}-*`,
+      `arn:aws:secretsmanager:${stack.region}:${stack.account}:secret:${GOOGLE_SECRET_NAME}-*`,
     ],
   })
 );
@@ -189,6 +194,29 @@ const slackCredentialProvider = new CfnResource(
               TokenEndpoint: 'https://slack.com/api/oauth.v2.user.access',
               ResponseTypes: ['code'],
             },
+          },
+        },
+      },
+    },
+  }
+);
+
+// Google用。Googleは標準OAuthなのでビルトインベンダーがそのまま使える
+const googleCredentialProvider = new CfnResource(
+  stack,
+  'GoogleCredentialProvider',
+  {
+    type: 'AWS::BedrockAgentCore::OAuth2CredentialProvider',
+    properties: {
+      Name: `google-provider-${suffix}`,
+      CredentialProviderVendor: 'GoogleOauth2',
+      Oauth2ProviderConfigInput: {
+        GoogleOauth2ProviderConfig: {
+          ClientId: GOOGLE_CLIENT_ID,
+          ClientSecretSource: 'EXTERNAL',
+          ClientSecretConfig: {
+            SecretId: GOOGLE_SECRET_NAME,
+            JsonKey: 'client_secret',
           },
         },
       },
@@ -312,6 +340,51 @@ new CfnResource(stack, 'SlackMcpTarget', {
             ],
             GrantType: 'AUTHORIZATION_CODE',
             DefaultReturnUrl: callbackUrl,
+          },
+        },
+      },
+    ],
+  },
+});
+
+// ─── Gateway Target: Google Calendar API（OpenAPIターゲット） ────
+// Googleには公式リモートMCPサーバーがないため、REST APIをOpenAPI定義で
+// ツール化するGateway本来の方式を使う。定義は使うエンドポイントだけ手書き
+// （$ref禁止・self-contained必須のため、Discoveryドキュメント変換は使わない）
+const googleCalendarSchema = readFileSync(
+  path.join(dirname, 'google-calendar-openapi.json'),
+  'utf-8'
+);
+
+new CfnResource(stack, 'GoogleCalendarTarget', {
+  type: 'AWS::BedrockAgentCore::GatewayTarget',
+  properties: {
+    Name: 'googlecal',
+    GatewayIdentifier: gateway.ref,
+    TargetConfiguration: {
+      Mcp: {
+        OpenApiSchema: {
+          InlinePayload: googleCalendarSchema,
+        },
+      },
+    },
+    CredentialProviderConfigurations: [
+      {
+        CredentialProviderType: 'OAUTH',
+        CredentialProvider: {
+          OauthCredentialProvider: {
+            ProviderArn: googleCredentialProvider
+              .getAtt('CredentialProviderArn')
+              .toString(),
+            Scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
+            GrantType: 'AUTHORIZATION_CODE',
+            DefaultReturnUrl: callbackUrl,
+            // Googleのリフレッシュトークン取得に必須。これがないと
+            // アクセストークン失効（1時間）のたびに再認可が必要になる
+            CustomParameters: {
+              access_type: 'offline',
+              prompt: 'consent',
+            },
           },
         },
       },

@@ -19,12 +19,14 @@ const SUGGESTIONS = [
   '私のリポジトリを教えて',
   'アサインされているIssueは？',
   'Slackで自分のメッセージを検索して',
+  '今日の予定を教えて',
 ];
 
 // 認可URLのドメインからサービス名を判定する（表示用）
 const providerFromUrl = (url: string) => {
   if (url.includes('slack.com')) return 'Slack';
   if (url.includes('github.com')) return 'GitHub';
+  if (url.includes('google.com')) return 'Google';
   return '外部サービス';
 };
 
@@ -169,7 +171,7 @@ function App({ signOut }: WithAuthenticatorProps) {
         {messages.length === 0 && AGENT_ARN && (
           <div className="empty">
             <h2>何をお手伝いしましょう？</h2>
-            <p>あなたのGitHubアカウントとSlackワークスペースの情報を調べます</p>
+            <p>あなたのGitHub・Slack・Googleカレンダーの情報を調べます</p>
             <div className="suggestions">
               {SUGGESTIONS.map((s) => (
                 <button
