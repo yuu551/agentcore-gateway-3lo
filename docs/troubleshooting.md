@@ -64,6 +64,12 @@ CompleteResourceTokenAuth の内部で Identity が呼び出し元（= Session B
 
 React StrictMode（開発モード）で useEffect が二重実行され、/auth/complete が 2 連発します。1 回目は成功しますが、2 回目が DynamoDB のワンタイム遷移条件（PENDING → COMPLETED は一度だけ）に弾かれ、失敗表示で上書きされます。Binding 自体は成功しています。Callback.tsx では useRef の実行済みガードで対処済みです。Lambda のログに同時刻の 2 呼び出しが残るのが見分けるポイントです。
 
+### Slack の認可は成功するのにツール呼び出しが Authorization error になる
+
+ビルトインの `SlackOauth2` ベンダーで Credential Provider を作っていると発生します。認可フロー自体は正常に完了するのに、Token Vault に保存されるのがボットトークンのため、ユーザートークン必須の Slack MCP サーバーに拒否されます。`CustomOauth2` ベンダーでユーザーフロー専用エンドポイントを明示してください（backend.ts は対応済み。経緯は [architecture.md](architecture.md) の Slack ターゲットの節を参照）。
+
+原因の切り分けには Gateway のログ配信が役立ちました。Gateway はデフォルトでログを出さないので、CloudWatch Logs の vended logs 配信（`put-delivery-source` / `put-delivery-destination` / `create-delivery`）を設定すると、アウトバウンド呼び出しの失敗理由（`MCP invocation failed: Authorization error ...` など）が確認できます。
+
 ### 認可済みのはずなのに再度認可を求められる
 
 - Credential Provider を共有していても、ターゲットの初回呼び出しで再認可（-32042）が発生するケースを確認しています（トークンの紐付けがターゲット単位である可能性）
