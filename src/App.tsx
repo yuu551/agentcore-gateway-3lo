@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import { withAuthenticator, type WithAuthenticatorProps } from '@aws-amplify/ui-react';
 import { Streamdown } from 'streamdown';
@@ -63,6 +63,11 @@ function App({ signOut }: WithAuthenticatorProps) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState(() => getOrCreateSessionId());
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
 
   const handleNewConversation = () => {
     const newId = resetSessionId();
@@ -175,22 +180,19 @@ function App({ signOut }: WithAuthenticatorProps) {
     <div className="chat-shell">
       <header className="chat-header">
         <span className="brand">3LO Agent</span>
-        <span className="brand-chip">AgentCore 3LO</span>
-        <span className="status">
-          <span className={`status-dot${AGENT_ARN ? '' : ' off'}`} />
-          {AGENT_ARN ? 'runtime ready' : 'no runtime'}
-        </span>
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={handleNewConversation}
-          disabled={loading}
-        >
-          新しい会話
-        </button>
-        <button type="button" className="ghost-btn" onClick={signOut}>
-          ログアウト
-        </button>
+        <div className="header-actions">
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={handleNewConversation}
+            disabled={loading}
+          >
+            新しい会話
+          </button>
+          <button type="button" className="ghost-btn" onClick={signOut}>
+            ログアウト
+          </button>
+        </div>
       </header>
 
       <main className="chat-log">
@@ -235,7 +237,7 @@ function App({ signOut }: WithAuthenticatorProps) {
             </div>
             <div className="msg-body">
               {m.role === 'assistant' ? (
-                <Streamdown>{m.content}</Streamdown>
+                <Streamdown linkSafety={{ enabled: false }}>{m.content}</Streamdown>
               ) : (
                 m.content
               )}
@@ -270,6 +272,7 @@ function App({ signOut }: WithAuthenticatorProps) {
             </div>
           </div>
         )}
+        <div ref={logEndRef} />
       </main>
 
       <div className="composer">

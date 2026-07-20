@@ -9,9 +9,7 @@ from strands.tools.mcp import MCPClient
 from gateway_auth import GatewayAuthHook
 from memory_session import create_session_manager
 
-MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-
-# Runtimeの環境変数から取得（backend.tsのenvironmentVariablesで注入）
+MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "")
 
 SYSTEM_PROMPT = """あなたはユーザーのGitHubアカウント・Slackワークスペース・Googleカレンダーの情報を調べるアシスタントです。
