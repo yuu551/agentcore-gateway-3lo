@@ -10,10 +10,26 @@ const custom = (
   }
 ).custom;
 const API_URL = custom.sessionBindingApiUrl;
-// エージェントARNはbackend.tsのOutputs経由で受け取る
 const AGENT_ARN = custom.agentArn ?? '';
-// リージョンはエージェントARNから導出（arn:aws:bedrock-agentcore:リージョン:...）
 const REGION = AGENT_ARN.split(':')[3] || 'us-east-1';
+
+const SESSION_HEADER = 'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id';
+const SESSION_STORAGE_KEY = 'agentcore-session-id';
+
+function getOrCreateSessionId(): string {
+  let id = sessionStorage.getItem(SESSION_STORAGE_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(SESSION_STORAGE_KEY, id);
+  }
+  return id;
+}
+
+function resetSessionId(): string {
+  const id = crypto.randomUUID();
+  sessionStorage.setItem(SESSION_STORAGE_KEY, id);
+  return id;
+}
 
 const SUGGESTIONS = [
   '私のリポジトリを教えて',
@@ -22,7 +38,6 @@ const SUGGESTIONS = [
   '今日の予定を教えて',
 ];
 
-// 認可URLのドメインからサービス名を判定する（表示用）
 const providerFromUrl = (url: string) => {
   if (url.includes('slack.com')) return 'Slack';
   if (url.includes('github.com')) return 'GitHub';
@@ -47,6 +62,14 @@ function App({ signOut }: WithAuthenticatorProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionId, setSessionId] = useState(() => getOrCreateSessionId());
+
+  const handleNewConversation = () => {
+    const newId = resetSessionId();
+    setSessionId(newId);
+    setMessages([]);
+    setInput('');
+  };
 
   const send = async () => {
     if (!input.trim() || loading || !AGENT_ARN) return;
@@ -70,6 +93,7 @@ function App({ signOut }: WithAuthenticatorProps) {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
+          [SESSION_HEADER]: sessionId,
         },
         body: JSON.stringify({ prompt: text }),
       });
@@ -98,12 +122,10 @@ function App({ signOut }: WithAuthenticatorProps) {
               ];
             });
           } else if (event.type === 'tool_use') {
-            // ツール呼び出しを境にテキストのセグメントを区切る
             assistantText = '';
             assistantId = crypto.randomUUID();
             setMessages((prev) => {
               const last = prev[prev.length - 1];
-              // 同じツールの連続通知はまとめる
               if (last?.role === 'tool' && last.content === event.tool_name) {
                 return prev;
               }
@@ -158,6 +180,14 @@ function App({ signOut }: WithAuthenticatorProps) {
           <span className={`status-dot${AGENT_ARN ? '' : ' off'}`} />
           {AGENT_ARN ? 'runtime ready' : 'no runtime'}
         </span>
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={handleNewConversation}
+          disabled={loading}
+        >
+          新しい会話
+        </button>
         <button type="button" className="ghost-btn" onClick={signOut}>
           ログアウト
         </button>
