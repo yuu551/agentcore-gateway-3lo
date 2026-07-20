@@ -14,7 +14,7 @@ import type {
 } from 'aws-lambda';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const agentcore = new BedrockAgentCoreClient({}); // Lambdaと同じリージョンを自動使用
+const agentcore = new BedrockAgentCoreClient({});
 const TABLE_NAME = process.env.TABLE_NAME!;
 
 export const handler = async (
@@ -76,7 +76,6 @@ export const handler = async (
         })
       );
     } catch (e) {
-      // 失敗したらワンタイム消費を取り消し、再試行できるようにする
       console.error('CompleteResourceTokenAuth failed', e);
       await ddb.send(
         new UpdateCommand({
@@ -87,7 +86,7 @@ export const handler = async (
           ExpressionAttributeValues: { ':pending': 'PENDING' },
         })
       );
-      return json(500, { error: 'GitHub連携の完了処理に失敗しました' });
+      return json(500, { error: '連携の完了処理に失敗しました' });
     }
     return json(200, { status: 'bound' });
   }

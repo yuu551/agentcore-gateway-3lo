@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineBackend } from '@aws-amplify/backend';
-import { CfnResource, Fn, RemovalPolicy, Stack } from 'aws-cdk-lib';
+import { CfnResource, Duration, Fn, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -110,7 +110,6 @@ httpApi.addRoutes({
   methods: [apigwv2.HttpMethod.POST],
   integration,
 });
-
 const outputs: Record<string, string> = {
   sessionBindingApiUrl: httpApi.apiEndpoint,
 };
@@ -395,6 +394,14 @@ new CfnResource(stack, 'GoogleCalendarTarget', {
 const gatewayUrl = gateway.getAtt('GatewayUrl').toString();
 outputs.gatewayUrl = gatewayUrl;
 
+// ─── AgentCore Memory（短期記憶のみ） ────────────────
+// memoryStrategiesを指定しないため、会話イベントだけを90日保持する
+const memory = new agentcore.Memory(stack, 'AgentMemory', {
+  memoryName: `github_agent_memory_${suffix}`,
+  description: 'Short-term conversation memory for the 3LO agent',
+  expirationDuration: Duration.days(90),
+});
+
 // ─── Agent Runtime（コンテナはCDKが自動ビルド&push） ──
 // agent/ ディレクトリのDockerfileからARM64イメージをアセットとしてビルドする
 const runtime = new agentcore.Runtime(stack, 'GithubAgentRuntime', {
@@ -418,10 +425,17 @@ runtime.addToRolePolicy(
   })
 );
 
+// Session Managerが短期イベントを保存・復元・必要時に置換/移行できる権限
+memory.grantWrite(runtime);
+memory.grantReadShortTermMemory(runtime);
+memory.grantDeleteShortTermMemory(runtime);
+
 // 環境変数とユーザーJWT転送の許可リスト（L1プロパティで指定）
 const cfnRuntime = runtime.node.defaultChild as CfnResource;
 cfnRuntime.addPropertyOverride('EnvironmentVariables', {
   GATEWAY_URL: gatewayUrl,
+  MEMORY_ID: memory.memoryId,
+  MEMORY_REGION: stack.region,
 });
 cfnRuntime.addPropertyOverride('RequestHeaderConfiguration', {
   RequestHeaderAllowlist: ['Authorization'],

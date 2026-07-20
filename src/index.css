@@ -43,7 +43,7 @@ body {
 
 /* ─── シェル ────────────────────────────────────────── */
 .chat-shell {
-  max-width: 760px;
+  max-width: 960px;
   margin: 0 auto;
   min-height: 100dvh;
   display: flex;
@@ -81,15 +81,21 @@ body {
   padding: 3px 10px;
 }
 
-.status {
+.header-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
+  gap: 8px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
   gap: 6px;
+  color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.06em;
-  color: var(--text-dim);
 }
 
 .status-dot {
@@ -120,6 +126,13 @@ body {
 .ghost-btn:hover {
   color: var(--text);
   border-color: var(--text-dim);
+}
+
+.ghost-btn:disabled {
+  color: var(--text-dim);
+  border-color: var(--border);
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 /* ─── メッセージログ ────────────────────────────────── */
@@ -233,10 +246,11 @@ body {
 .msg-agent .msg-body code {
   font-family: var(--font-mono);
   font-size: 0.85em;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 1px 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  border-radius: 4px;
+  padding: 2px 5px;
+  color: var(--text);
 }
 
 .msg-agent .msg-body pre {
@@ -406,7 +420,7 @@ body {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: min(760px, 100%);
+  width: min(960px, 100%);
   padding: 0 20px 22px;
   background: linear-gradient(transparent, var(--bg) 40%);
 }

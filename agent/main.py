@@ -7,10 +7,9 @@ from strands import Agent
 from strands.tools.mcp import MCPClient
 
 from gateway_auth import GatewayAuthHook
+from memory_session import create_session_manager
 
-MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-
-# Runtimeの環境変数から取得（backend.tsのenvironmentVariablesで注入）
+MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "")
 
 SYSTEM_PROMPT = """あなたはユーザーのGitHubアカウント・Slackワークスペース・Googleカレンダーの情報を調べるアシスタントです。
@@ -33,10 +32,10 @@ async def invoke(payload, context: RequestContext):
     raw_auth = headers.get("Authorization") or headers.get("authorization") or ""
     bearer_token = raw_auth.removeprefix("Bearer ").removeprefix("bearer ").strip()
 
+    session_manager = await asyncio.to_thread(create_session_manager, context)
+
     event_queue = asyncio.Queue()
 
-    # GatewayはエージェントからはただのMCPサーバー。
-    # ユーザーのJWTをそのまま渡して接続する（JWTパススルー）
     gateway = MCPClient(
         lambda: streamablehttp_client(
             GATEWAY_URL, headers={"Authorization": f"Bearer {bearer_token}"}
@@ -44,7 +43,6 @@ async def invoke(payload, context: RequestContext):
     )
 
     with gateway:
-        # Gateway組み込みのセマンティック検索ツールは除外する
         tools = [
             t for t in gateway.list_tools_sync()
             if not t.tool_name.startswith("x_amz")
@@ -55,10 +53,12 @@ async def invoke(payload, context: RequestContext):
             tools=tools,
             system_prompt=SYSTEM_PROMPT,
             hooks=[GatewayAuthHook(event_queue)],
+            session_manager=session_manager,
+            agent_id="default",
         )
 
         async def run_agent():
-            seen_tool_ids = set()  # 同一ツール呼び出しの重複通知を防ぐ
+            seen_tool_ids = set()
             try:
                 async for event in agent.stream_async(prompt):
                     if isinstance(event.get("data"), str):

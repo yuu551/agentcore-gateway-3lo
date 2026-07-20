@@ -158,6 +158,59 @@ CloudFormation の AWS::BedrockAgentCore:: 系リソースタイプと aws-cdk-l
 - Gateway / ターゲット / Credential Provider は L1（CfnResource 直書き）。3LO 系の新しいプロパティに対する L2 の追随リスクを避けるため
 - 値の受け渡しはすべて CDK 内で解決される。Gateway URL は Runtime の環境変数として CloudFormation 参照で渡り、エージェント ARN は amplify_outputs.json 経由でフロントエンドのビルドに届く
 
+## AgentCore Memory（短期記憶）
+
+会話の継続には、AgentCore RuntimeのHTTPセッションとAgentCore Memoryの短期イベントを同じ会話UUIDで束ねます。現在の会話UUID自体もAgentCore Memoryの専用`conversation-index`セッションへ保存するため、ブラウザのlocalStorageや会話用DynamoDBは使いません。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as ユーザー
+    participant SPA as React SPA
+    participant SB as Session Binding API
+    participant RT as AgentCore Runtime
+    participant AG as Strands Agent
+    participant MEM as AgentCore Memory
+
+    U->>SPA: Cognitoログイン後に表示
+    SPA->>SB: GET /conversation/session + JWT
+    SB->>MEM: actor_id + conversation-indexのポインタをListEvents
+    MEM-->>SB: 現在の会話UUID（なければCreateEventで作成）
+    SB-->>SPA: 会話UUID
+    SPA->>RT: prompt + JWT + X-Amzn-Bedrock-AgentCore-Runtime-Session-Id
+    RT->>AG: RequestContext.session_id + 検証済みAuthorization
+    AG->>AG: JWTのsubをactor_idとして取得
+    AG->>MEM: Session Managerでactor_id/session_idの履歴を復元
+    AG-->>RT: Strandsのストリーム
+    AG->>MEM: ユーザー/アシスタントメッセージを保存
+    RT-->>SPA: SSE
+```
+
+Memoryは`memoryStrategies`を設定しないため短期記憶のみです。イベントの保持期間は90日で、`AgentCoreMemorySessionManager`がAgent初期化時に履歴を読み、各メッセージを保存します。`batch_size=1`で即時保存し、非同期Runtimeでは`async_mode=True`を使います。Agent初期化時の同期的な履歴読み込みは`asyncio.to_thread()`でワーカースレッドへ移します。
+
+分離キーは次のとおりです。
+
+- Browser: 会話UUIDを永続化しない。Session Binding APIから取得したUUIDはReactの実行中状態としてのみ保持する
+- Memoryの会話インデックス: `actorId=Cognito JWT sub`、`sessionId=conversation-index`のblobイベントへ現在の会話UUIDを保存
+- Runtime: `X-Amzn-Bedrock-AgentCore-Runtime-Session-Id`で会話UUIDを渡す
+- Memoryの会話履歴: Cognito JWTの検証済み`sub`を`actorId`、会話UUIDを`sessionId`としてイベントを保存
+
+actor_idはpayloadから受け取らず、Runtime authorizerで検証済みのAuthorizationヘッダーからのみ導出します。JWTの再署名検証はRuntimeの責務であり、エージェントは検証済みJWTのpayloadをデコードして`sub`を取り出します。Memory設定不備、IAM拒否、履歴復元・保存APIの失敗は、記憶があるように見せるステートレスフォールバックをせずSSE `error`イベントとして返します。
+
+「新しい会話」はSPAがSession Binding APIへ`POST /conversation/session`を送り、AgentCore Memoryの`conversation-index`ポインタを新しいUUIDへ更新する操作です。旧イベントは即時削除せず、90日TTLで失効します。過去会話の一覧表示は提供しません。
+
+Runtimeセッションと3LO認可用Session Binding APIの`session_id`は名前が似ていますが別物です。Runtimeセッションは会話の実行環境と短期Memoryの識別に使い、Session Bindingの値はOAuth認可リクエストを開始したユーザーへ一度だけ紐付けるために使います。
+
+### Memory IAM
+
+Runtime実行ロールとSession Binding API Lambdaには、それぞれ次の短期Memory grantを付与します。
+
+- `memory.grantWrite(...)` — `bedrock-agentcore:CreateEvent`
+- `memory.grantReadShortTermMemory(...)` — `GetEvent` / `ListEvents` / `ListActors` / `ListSessions`
+- Runtimeの`memory.grantDeleteShortTermMemory(runtime)` — Session Managerのlegacy移行・メッセージ置換時の`DeleteEvent`
+
+LambdaはCognito JWTの`sub`をactorIdとしてMemory APIへ渡し、現在ポインタイベントを90日保持します。LambdaにはDeleteEventや長期記憶の読み取り、Memory管理権限を付与していません。
+
 ## セキュリティ上の注意
 
 - 現在のコールバック画面はアクセスすると自動で Binding を完了させる実装です。外部から不正な session_id を含むコールバック URL を踏まされるケースを考えると、完了前に確認ボタン（「この連携を承認しますか？」）を挟むとより安全です。本番運用ではこのひと手間の追加を推奨します
