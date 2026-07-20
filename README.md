@@ -208,9 +208,9 @@ Slack MCP サーバーはユーザートークン（`xoxp-`）でしか呼び出
 
 ## Google カレンダーターゲットの設計メモ
 
-Google には公式リモート MCP サーバーがないため、Gateway の OpenAPI ターゲット（REST API をそのまま MCP ツール化する機能）で Calendar API に接続しています。OpenAPI ターゲットも MCP サーバーターゲットと同じ 3LO（Authorization Code）に対応しています。
+Google には公式の Workspace MCP サーバー（Calendar / Gmail / Drive / Chat）が Developer Preview で公開されていますが、ツール実行には Workspace 管理者が admin.google.com で OAuth アプリを「信頼済み」に設定する必要があり、個人 Gmail では利用できません。そのため、このサンプルでは Gateway の OpenAPI ターゲット（REST API をそのまま MCP ツール化する機能）で Calendar API に接続しています。MCPサーバーを提供していない SaaS でも、REST API さえあれば同じ 3LO パターンでつなげることを示す例でもあります。
 
-OpenAPI 定義（`amplify/google-calendar-openapi.json`）は Calendar API の Discovery ドキュメントから自動変換したものではなく、使う読み取り系 3 操作だけを手書きしたものです。`operationId` がそのままツール名になり、description と合わせてモデルのツール選択精度に直結するので、静的ツールスキーマと同じ「厳選」方針を採っています。なお、スキーマは self-contained である必要があります（`$ref` は使えません）。
+OpenAPI 定義（`amplify/google-calendar-openapi.json`）は Calendar API の Discovery ドキュメントから自動変換したものではなく、使う読み取り系 3 操作だけを手書きしたものです。`operationId` がそのままツール名になり、description と合わせてモデルのツール選択精度に直結するので、静的ツールスキーマと同じ「厳選」方針を採っています。スキーマは self-contained である必要があります（`$ref` は使えません）。
 
 Google のアクセストークンは 1 時間で失効します。そこでターゲットの OAuth 設定に `CustomParameters: { access_type: 'offline', prompt: 'consent' }` を指定し、リフレッシュトークンの発行を認可 URL に要求しています。
 
