@@ -34,6 +34,7 @@ sequenceDiagram
     SPA->>SB: POST /auth/complete（session_id + JWT）
     SB->>ID: CompleteResourceTokenAuth
     Note over ID: 取得したトークンを<br/>ユーザーに紐付けて保管
+    SPA-->>U: 成功表示後にコールバックタブを閉じる
     RT->>GW: リトライのtools/call
     GW->>ID: トークン照会
     ID-->>GW: トークン取得
@@ -42,6 +43,77 @@ sequenceDiagram
     GW-->>RT: ツール結果
     RT-->>SPA: 回答（SSE）
 ```
+
+### 接続状態の自動確認（connection_check）
+
+連携設定パネルを初めて開くと、SPA は GitHub・Slack・Google カレンダーの `connection_check` を並列で実行します。Runtime は LLM / Memory を起動せず、各サービスの読み取りツールを 1 回だけ呼びます。未連携時の elicitation は認可 URL を返さず `not_connected` へ変換するため、パネルを開いただけでは OAuth や Session Binding を開始しません。1 サービスの失敗も、ほかの確認を止めません。
+
+確定した `connected` / `not_connected` と確認時刻だけを、Cognito のユーザー ID で分離した `sessionStorage` へ 5 分間保存します。再読み込み直後は `前回: 連携済み` のように表示し、パネルを開くと前回値を残したまま並列で再確認します。トークン、認可 URL、エラー本文、provider のレスポンスは保存しません。
+
+```mermaid
+sequenceDiagram
+    actor U as ユーザー
+    participant SPA as SPA（連携設定）
+    participant RT as Runtime
+    participant GW as Gateway
+
+    U->>SPA: パネルを開く
+    par GitHub
+        SPA->>RT: connection_check(github) + JWT
+        RT->>GW: 読み取りツールを1回呼び出し
+        GW-->>RT: success または -32042
+        RT-->>SPA: connected または not_connected
+    and Slack
+        SPA->>RT: connection_check(slack) + JWT
+        RT->>GW: 読み取りツールを1回呼び出し
+        GW-->>RT: success または -32042
+        RT-->>SPA: connected または not_connected
+    and Google カレンダー
+        SPA->>RT: connection_check(google_calendar) + JWT
+        RT->>GW: 読み取りツールを1回呼び出し
+        GW-->>RT: success または -32042
+        RT-->>SPA: connected または not_connected
+    end
+```
+
+### 事前連携（connection_probe）
+
+`not_connected` のサービスで「連携する」を押すと、個別の `connection_probe` を開始します。Runtime は LLM / Memory を起動せず、Gateway の読み取りツールを直接呼び出します。
+
+```mermaid
+sequenceDiagram
+    actor U as ユーザー
+    participant SPA as SPA（連携設定）
+    participant RT as Runtime
+    participant GW as Gateway
+    participant SB as Session Binding API
+    participant P as Provider
+
+    U->>SPA: 「確認・連携」
+    SPA->>RT: connection_probe(provider) + JWT
+    RT-->>SPA: connection_status(checking)
+    RT->>GW: 読み取りツールを直接呼び出し
+    alt 連携済み
+        GW-->>RT: success
+        RT-->>SPA: connection_status(connected)
+    else 未連携
+        GW-->>RT: -32042 + 認可URL
+        RT-->>SPA: auth_required(provider, URL)
+        SPA->>SB: POST /auth/pending
+        SPA-->>U: 認可リンク
+        U->>P: OAuth 同意
+        loop 5秒間隔、最大5分
+            RT->>GW: 同じツールを再試行
+        end
+        RT-->>SPA: connection_status(connected)
+    end
+```
+
+チャット起点の認可フローも引き続き利用でき、`auth_required` に明示的な `provider` が付きます。接続状態はパネルと共有されます。
+
+`connection_check` は provider ごとに独立しているため、自動確認だけでなく手動の「再確認」も別サービスなら並列実行できます。`connection_probe` は Session Binding の PENDING レコードがユーザーごとに 1 件であるため、認可だけは同時に 1 サービスへ制限します。並列認可へ変更する際の条件は [connection-settings-constraints.md](connection-settings-constraints.md) にまとめています。
+
+OAuth 完了後の `/callback` は成功を短く表示してから `window.close()` を呼びます。ブラウザの制限で自動クローズできない場合は、完了状態を維持したまま手動の「このタブを閉じる」を表示します。
 
 ## 設計判断
 
