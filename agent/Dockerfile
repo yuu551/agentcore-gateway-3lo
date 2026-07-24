@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py gateway_auth.py memory_session.py ./
+COPY main.py gateway_auth.py memory_session.py connections.py ./
 
 EXPOSE 8080
 CMD ["python", "main.py"]

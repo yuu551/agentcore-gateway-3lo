@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp, RequestContext
@@ -6,11 +7,14 @@ from mcp.client.streamable_http import streamablehttp_client
 from strands import Agent
 from strands.tools.mcp import MCPClient
 
+from connections import PROVIDER_PROBES, run_connection_check, run_connection_probe
 from gateway_auth import GatewayAuthHook
 from memory_session import create_session_manager
 
 MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "")
+
+logger = logging.getLogger("agent_main")
 
 SYSTEM_PROMPT = """あなたはユーザーのGitHubアカウント・Slackワークスペース・Googleカレンダーの情報を調べるアシスタントです。
 ツールで取得した情報をもとに、日本語で簡潔に回答してください。
@@ -24,13 +28,70 @@ Slackへのメッセージ送信は、送信先と内容をユーザーの指示
 app = BedrockAgentCoreApp()
 
 
-@app.entrypoint
-async def invoke(payload, context: RequestContext):
-    prompt = payload.get("prompt", "")
-
+def _bearer_token(context: RequestContext) -> str:
     headers = context.request_headers or {}
     raw_auth = headers.get("Authorization") or headers.get("authorization") or ""
-    bearer_token = raw_auth.removeprefix("Bearer ").removeprefix("bearer ").strip()
+    return raw_auth.removeprefix("Bearer ").removeprefix("bearer ").strip()
+
+
+def _parse_operation(payload: dict) -> str:
+    operation = payload.get("operation")
+    if operation is None:
+        return "chat"
+    if operation in ("chat", "connection_probe", "connection_check"):
+        return operation
+    return "invalid"
+
+
+async def _run_connection_operation(operation: str, provider: str, bearer_token: str):
+    logger.info("invoke %s provider=%s", operation, provider)
+    gateway = MCPClient(
+        lambda: streamablehttp_client(
+            GATEWAY_URL, headers={"Authorization": f"Bearer {bearer_token}"}
+        )
+    )
+    runner = (
+        run_connection_check
+        if operation == "connection_check"
+        else run_connection_probe
+    )
+    with gateway:
+        async for event in runner(gateway=gateway, provider=provider):
+            yield event
+
+
+@app.entrypoint
+async def invoke(payload, context: RequestContext):
+    operation = _parse_operation(payload if isinstance(payload, dict) else {})
+    bearer_token = _bearer_token(context)
+
+    if operation == "invalid":
+        yield {
+            "type": "error",
+            "data": "このサービスは利用できません。",
+            "code": "invalid_provider",
+        }
+        return
+
+    if operation in ("connection_probe", "connection_check"):
+        provider = payload.get("provider")
+        if provider not in PROVIDER_PROBES:
+            yield {
+                "type": "error",
+                "scope": "connection",
+                "code": "invalid_provider",
+                "data": "このサービスは利用できません。",
+            }
+            return
+
+        async for event in _run_connection_operation(
+            operation, provider, bearer_token
+        ):
+            yield event
+        return
+
+    # chat（後方互換: operation 省略 + prompt）
+    prompt = payload.get("prompt", "") if isinstance(payload, dict) else ""
 
     session_manager = await asyncio.to_thread(create_session_manager, context)
 

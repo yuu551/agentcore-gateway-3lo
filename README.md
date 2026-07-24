@@ -42,15 +42,20 @@ PNG には draw.io の XML を埋め込んであるので、draw.io で開けば
 │   ├── slack-mcp-tools.json        # Slackターゲットの静的ツールスキーマ（厳選5ツール）
 │   └── google-calendar-openapi.json # Google CalendarターゲットのOpenAPI定義（読み取り系3操作）
 ├── agent/                          # Strands エージェント（詳細は agent/README.md）
-│   ├── main.py                     # エントリーポイント（MCPClient / Session Manager）
+│   ├── main.py                     # エントリーポイント（chat / connection_probe）
+│   ├── connections.py              # 接続確認用の読み取りツール呼び出し
 │   ├── memory_session.py           # JWT actor_idとAgentCore Memoryセッションの構成
-│   ├── gateway_auth.py             # 3LO 認可待ちを扱う strands フック（プロバイダー非依存）
+│   ├── gateway_auth.py             # 3LO 認可待ちを扱う strands フック
+│   ├── tests/                      # 接続プローブ / 認可フックの単体テスト
 │   └── Dockerfile                  # ARM64 イメージ（CDK がアセットとしてビルド）
 ├── scripts/
 │   └── fetch_mcp_tools.py          # MCPサーバーから静的ツールスキーマを生成（github / slack）
 ├── src/                            # React SPA
-│   ├── App.tsx                     # チャット UI（SSE / 会話セッション / 認可カード）
-│   ├── conversationSession.ts      # AgentCore Memoryの会話セッションAPIクライアント
+│   ├── App.tsx                     # チャット UI
+│   ├── components/                 # 連携設定パネルなど
+│   ├── hooks/                      # 接続状態管理
+│   ├── lib/agentRuntime.ts         # Runtime 呼び出しと SSE パース
+│   ├── types/runtime.ts            # Runtime request / event 型
 │   └── Callback.tsx                # OAuth コールバック画面（Session Binding 完了）
 ├── docs/                           # 設計解説・トラブルシューティング
 ├── images/                         # アーキテクチャ図（draw.io XML埋め込みPNG）
@@ -181,12 +186,19 @@ aws bedrock-agentcore-control get-oauth2-credential-provider \
 ## 動作確認
 
 1. アプリにアクセスし、Cognito でサインアップ・ログインする
-2. 「私のリポジトリを教えて」などと送信すると、初回は GitHub の認可リンクが表示される（エージェントは裏で 5 秒間隔のリトライで認可完了を待機）
-3. リンクから認可を完了すると、コールバック画面に「アカウント連携が完了しました」と表示され、元のチャットで回答が自動で流れ始める
-4. 「Slackで自分のメッセージを検索して」「今日の予定を教えて」などと送信すると、今度は Slack / Google の認可リンクが表示される。同様に認可すると回答が返る
-5. 2 回目以降の質問は認可なしで即座に回答が返る（Token Vault にサービスごとのトークンが保管済みのため）
+2. ヘッダーの「連携設定」（または空状態の「先に外部サービスを連携する」）を開く。パネルを開くと 3 サービスの接続状態が並列で自動確認される（チャット履歴にはメッセージが増えない）
+3. すでに Token Vault にトークンがあるサービスは「連携済み」になる。トークンがないサービスは「未連携」になり、「連携する」が表示される
+4. 「連携する」を押すと認可リンクが出る。認可を完了するとコールバックタブが自動で閉じ、数秒でパネルが「連携済み」になる
+5. 「再確認」で任意のサービスだけ再度確認できる。接続確認同士は別サービスなら並列実行できる
+6. 「私のリポジトリを教えて」などと送信すると、連携済みならそのまま回答が返る。未連携なら従来どおりチャット内にも認可リンクが出る（エージェントは裏で 5 秒間隔のリトライで認可完了を待機）
+7. 「Slackで自分のメッセージを検索して」「今日の予定を教えて」なども同様
+8. 2 回目以降の質問は認可なしで即座に回答が返る（Token Vault にサービスごとのトークンが保管済みのため）
+
+パネルを開くと 3 サービスの接続状態を並列で自動確認します（OAuth 画面は開きません）。「連携する」を押したときだけ認可を開始します。1 サービスの認可中は他サービスの開始とチャット送信が無効になります。確定した接続状態だけをユーザー別に `sessionStorage` へ 5 分間キャッシュするため、同じタブで再読み込みした直後は前回値を表示し、パネルを開くとバックグラウンドで再確認します。OAuth トークン、認可 URL、provider のレスポンス本文はブラウザへ保存しません。
 
 うまく動かない場合は [docs/troubleshooting.md](docs/troubleshooting.md) を参照してください。
+詳細設計は [docs/connection-settings-design.md](docs/connection-settings-design.md) を、実機フィードバックは [docs/connection-settings-feedback.md](docs/connection-settings-feedback.md) を参照してください。
+接続確認と OAuth 認可の並列実行、コールバック自動クローズ、状態キャッシュの制約は [docs/connection-settings-constraints.md](docs/connection-settings-constraints.md) にまとめています。
 
 ## 会話の短期記憶
 
