@@ -10,6 +10,7 @@ import * as agentcore from 'aws-cdk-lib/aws-bedrockagentcore';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { Platform } from 'aws-cdk-lib/aws-ecr-assets';
 import { PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { ContainerImageBuild } from '@cdklabs/deploy-time-build';
 import { auth } from './auth/resource';
 import { sessionBinding } from './functions/session-binding/resource';
 
@@ -402,22 +403,41 @@ const memory = new agentcore.Memory(stack, 'AgentMemory', {
   expirationDuration: Duration.days(90),
 });
 
-// ─── Agent Runtime（コンテナはCDKが自動ビルド&push） ──
-// agent/ ディレクトリのDockerfileからARM64イメージをアセットとしてビルドする
+// ─── Agent Runtime（CodeBuild でイメージビルド → ECR → Runtime） ──
+// ContainerImageBuild を使うことで、ローカル Docker が不要になり
+// Amplify Hosting の CI/CD 環境でもビルドが通る
+const agentImage = new ContainerImageBuild(stack, 'AgentImage', {
+  directory: path.join(dirname, '../agent'),
+  platform: Platform.LINUX_ARM64,
+});
+
 const runtime = new agentcore.Runtime(stack, 'GithubAgentRuntime', {
   runtimeName: `github_agent_${suffix}`,
-  agentRuntimeArtifact: agentcore.AgentRuntimeArtifact.fromAsset(
-    path.join(dirname, '../agent'),
-    { platform: Platform.LINUX_ARM64 }
+  agentRuntimeArtifact: agentcore.AgentRuntimeArtifact.fromEcrRepository(
+    agentImage.repository,
+    agentImage.imageTag,
   ),
-  // インバウンド認証はフロントエンドと同じCognito
   authorizerConfiguration: agentcore.RuntimeAuthorizerConfiguration.usingCognito(
     userPool,
     [userPoolClient]
   ),
+  environmentVariables: {
+    GATEWAY_URL: gatewayUrl,
+    MEMORY_ID: memory.memoryId,
+    MEMORY_REGION: stack.region,
+  },
 });
 
-// エージェントが使うBedrockモデルの呼び出し許可
+// ECR Pull 権限（fromEcrRepository では自動付与されないケースがある）
+runtime.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['ecr:GetAuthorizationToken'],
+    resources: ['*'],
+  })
+);
+agentImage.repository.grantPull(runtime);
+
+// Bedrockモデルの呼び出し許可
 runtime.addToRolePolicy(
   new PolicyStatement({
     actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
@@ -430,13 +450,8 @@ memory.grantWrite(runtime);
 memory.grantReadShortTermMemory(runtime);
 memory.grantDeleteShortTermMemory(runtime);
 
-// 環境変数とユーザーJWT転送の許可リスト（L1プロパティで指定）
+// JWTの転送許可リスト（環境変数はL2プロパティに移行済み）
 const cfnRuntime = runtime.node.defaultChild as CfnResource;
-cfnRuntime.addPropertyOverride('EnvironmentVariables', {
-  GATEWAY_URL: gatewayUrl,
-  MEMORY_ID: memory.memoryId,
-  MEMORY_REGION: stack.region,
-});
 cfnRuntime.addPropertyOverride('RequestHeaderConfiguration', {
   RequestHeaderAllowlist: ['Authorization'],
 });

@@ -20,6 +20,9 @@ importers:
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.0.0
         version: 3.1082.0(@aws-sdk/client-dynamodb@3.1082.0)
+      '@cdklabs/deploy-time-build':
+        specifier: ^0.1.6
+        version: 0.1.6(aws-cdk-lib@2.261.0(constructs@10.6.0))(constructs@10.6.0)
       aws-amplify:
         specifier: ^6.18.0
         version: 6.18.0
@@ -861,6 +864,7 @@ packages:
   '@aws-sdk/credential-providers@3.1082.0':
     resolution: {integrity: sha512-4RmNRlImsaEedP1muXMMpYInk3hZdi2f0qRKAzMF27QPIDipt6XD5mVc4EkGNEW6nqSaiYaSN++eC5fefqfF9A==}
     engines: {node: '>=20.0.0'}
+    deprecated: This version was deprecated due to a caching bug in fromNodeProviderChain. Please update to v3.1086.0 or higher. https://github.com/aws/aws-sdk-js-v3/issues/8184
 
   '@aws-sdk/dynamodb-codec@3.973.30':
     resolution: {integrity: sha512-mxqvU1LA9bcU7ugot3OJHvtdaFPGcYO77QDr+nQa14cHZg7MZYRtWibG5ZGrUBrbfjhz4yxC/+gc4bcfHPYB+w==}
@@ -1211,6 +1215,13 @@ packages:
 
   '@braintree/sanitize-url@7.1.2':
     resolution: {integrity: sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==}
+
+  '@cdklabs/deploy-time-build@0.1.6':
+    resolution: {integrity: sha512-V5Nb2nB32hdB3X7TpQxzryYHLjTO3oobs+eGDS88TPN41IyDHZ/4Ls/RSEhdDMmEH9VMLX+EigMOPz8pSGq1lA==}
+    engines: {node: '>= 18.12.0'}
+    peerDependencies:
+      aws-cdk-lib: ^2.38.0
+      constructs: ^10.5.1
 
   '@cdklabs/tskb@0.0.4':
     resolution: {integrity: sha512-NFx1X0l7p5DyHtLLEyNeh1hPN4UN9hTkZkzFs/Mp+kFk7dpdINGmGVpCfRDjJ2DrcNSNENUmT+w8g73TvmBbTw==}
@@ -7524,6 +7535,11 @@ snapshots:
       '@babel/helper-validator-identifier': 7.29.7
 
   '@braintree/sanitize-url@7.1.2': {}
+
+  '@cdklabs/deploy-time-build@0.1.6(aws-cdk-lib@2.261.0(constructs@10.6.0))(constructs@10.6.0)':
+    dependencies:
+      aws-cdk-lib: 2.261.0(constructs@10.6.0)
+      constructs: 10.6.0
 
   '@cdklabs/tskb@0.0.4': {}
 
